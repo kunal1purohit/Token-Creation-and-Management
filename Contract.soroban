@@ -1,0 +1,97 @@
+// Define an enum to represent different token types (like fungible vs non-fungible)
+#[derive(Debug)]
+pub enum TokenType {
+    Fungible(u8), // Decimals for spendable tokens (think money)
+    NonFungible,   // Unique tokens for special things (like NFTs)
+}
+
+// Define a struct to store token information
+#[derive(Debug)]
+pub struct Token {
+    pub name: String,
+    pub symbol: String,
+    pub token_type: TokenType,
+    pub total_supply: u64, // Total number of tokens that can exist
+    pub issued_supply: u64, // Number of tokens currently out there
+    pub kyc_required: bool,  // Do users need to verify their identity? (extra credit!)
+    pub metadata: HashMap<String, String>, // Optional details about the token
+}
+
+pub contract MyAdvancedTokenContract {
+    // State variable to store issued tokens (basically a big dictionary)
+    pub tokens: HashMap<String, Token>,
+
+    // Function to create a new token (this is where the magic happens!)
+    pub fn create_token(
+        &mut self,
+        ctx: &Context,
+        name: String,
+        symbol: String,
+        token_type: TokenType,
+        total_supply: u64,
+        kyc_required: bool,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), String> {
+        // Only authorized people (like admins) can create tokens (security!)
+        if !is_authorized_issuer(ctx.caller) {
+            return Err("Hey! You can't do that! Only authorized issuers can create tokens!".to_string());
+        }
+
+        // Check if there's already a token with the same symbol (don't want duplicates!)
+        if self.tokens.contains_key(&symbol) {
+            return Err("There's already a token with that symbol. Try a different one!".to_string());
+        }
+
+        // Make sure the total supply is valid depending on the token type
+        match token_type {
+            TokenType::Fungible(decimals) => {
+                if decimals > 18 {
+                    return Err("Whoa! Too many decimal places! Fungible tokens can only have up to 18 decimals.".to_string());
+                }
+            }
+            TokenType::NonFungible => {
+                if total_supply != 1 {
+                    return Err("Wait a minute... Non-fungible tokens can only have a total supply of 1. They're one-of-a-kind!".to_string());
+                }
+            }
+        }
+
+        // Create a new Token struct (like a blueprint)
+        let token = Token {
+            name,
+            symbol,
+            token_type,
+            total_supply,
+            issued_supply: 0,
+            kyc_required,
+            metadata: metadata.unwrap_or(HashMap::new()),
+        };
+
+        // Add the token to our big dictionary of tokens
+        self.tokens.insert(symbol.clone(), token);
+
+        Ok(())
+    }
+
+    // Function to issue new tokens (only for fungible tokens, not NFTs!)
+    pub fn issue_tokens(&mut self, ctx: &Context, symbol: String, amount: u64) -> Result<(), String> {
+        // Only the issuer (the person who created the token) can issue more
+        if ctx.caller != ctx.get_txn_signer(0)? {
+            return Err("Hey! You can't issue more tokens! Only the issuer can do that!".to_string());
+        }
+
+        // Check if the token even exists (don't want errors!)
+        if !self.tokens.contains_key(&symbol) {
+            return Err("Uh oh! We can't find that token. Maybe you misspelled the symbol?".to_string());
+        }
+
+        // Get a reference to the token (like grabbing it from the dictionary)
+        let mut token = self.tokens.get_mut(&symbol).unwrap();
+
+        // Make sure we're not trying to issue more tokens than the total supply allows
+        if let TokenType::NonFungible = token.token_type {
+            return Err("Hold on! You can't issue more non-fungible tokens. They're limited to just one!".to_string());
+        }
+
+        // Check if we're trying to create more tokens than there are allowed
+        if token.issued_supply
